@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Othello × LifeGame（CCC / Custom Events v7）</title>
+  <title>Othello × LifeGame（CCC / Local v10）</title>
   <style>
     :root { color-scheme: light dark; }
     * { box-sizing: border-box; }
@@ -14,7 +14,7 @@
       place-items: center;
       min-height: 100vh;
     }
-    .app { width: min(1040px, 96vw); display: grid; gap: 12px; padding: 14px 0; }
+    .app { width: min(1060px, 96vw); display: grid; gap: 12px; padding: 14px 0; }
 
     .panel {
       border: 1px solid rgba(127,127,127,.35);
@@ -31,17 +31,27 @@
       gap: 12px;
       flex-wrap: wrap;
     }
-    .title { font-weight: 700; font-size: 16px; line-height: 1.2; }
+    .title { font-weight: 800; font-size: 16px; line-height: 1.2; }
     .hint { opacity: .75; font-size: 12px; }
 
-    button {
+    button, input {
       padding: 8px 12px;
       border-radius: 10px;
       border: 1px solid rgba(127,127,127,.35);
       background: rgba(127,127,127,.12);
-      cursor: pointer;
     }
+    button { cursor: pointer; }
     button:hover { filter: brightness(1.1); }
+    input[type="number"] { width: 110px; }
+
+    .row { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
+    .pill {
+      display:inline-flex; align-items:center; gap:8px;
+      padding:6px 10px; border-radius:999px;
+      border:1px solid rgba(127,127,127,.35);
+      background: rgba(127,127,127,.12);
+      font-size: 13px;
+    }
 
     .scoregrid {
       display: grid;
@@ -96,7 +106,7 @@
       background: rgba(0,0,0,.10);
     }
     .k { opacity: .85; font-size: 12px; }
-    .v { font-weight: 800; font-size: 18px; letter-spacing: .2px; }
+    .v { font-weight: 900; font-size: 18px; letter-spacing: .2px; }
 
     .turnBanner {
       display: flex;
@@ -126,22 +136,29 @@
     <div class="panel topbar">
       <div class="toprow">
         <div>
-          <div class="title">Othello × LifeGame（CCC）</div>
-          <div class="hint">クリックで石を置く / R: リセット（配置も再抽選） / 置ける場所には黒い点（最前面）</div>
+          <div class="title">Othello × LifeGame（CCC / ローカル対戦）</div>
+          <div class="hint">クリックで石を置く / R: リセット（配置も再抽選） / 置ける場所は黒い点（最前面） / 座標はチェス形式（上下a-h / 左右8-1）</div>
         </div>
-        <div style="display:flex; gap:8px; align-items:center;">
+        <div class="row">
           <button id="btnReset">Reset</button>
         </div>
+      </div>
+
+      <div class="row">
+        <span class="pill">罰ゲームマス数（0〜16）</span>
+        <input id="penaltyCount" type="number" min="0" max="16" step="1" value="10" />
+        <button id="btnPenaltyRandom">ランダム</button>
+        <span class="hint">※過不足は「+10（青）」の枚数で調整（最大16）。</span>
       </div>
 
       <div class="turnBanner">
         <div class="badge">
           <span>手番</span>
-          <span id="turnLabel" style="font-weight:800;">黒</span>
+          <span id="turnLabel" style="font-weight:900;">黒</span>
         </div>
         <div class="hint">
           合算 = 所持金 + 石数×<span id="discBonusLabel">10</span> /
-          罰ゲーム: 黄 / 正: 青(+値) / 負: 赤(-値)
+          罰ゲーム: 黄 / 正: 青（数値のみ） / 負: 赤（数値のみ）
         </div>
       </div>
 
@@ -172,7 +189,7 @@
       </div>
     </div>
 
-    <canvas id="game" width="900" height="900" aria-label="othello board"></canvas>
+    <canvas id="game" width="920" height="920" aria-label="othello board"></canvas>
 
     <div class="panel" id="log"></div>
   </div>
@@ -188,25 +205,25 @@
 
     const TILE = { NONE: 0, PENALTY: 1, POS: 2, NEG: 3 };
 
-    // corners 2x2 (16 cells) -> pick 10 for penalty
-    const PENALTY_COUNT = 10;
-
-    // positive distribution totals 25 (remaining 50 -> pos25 + neg25)
-    const POS_DISTRIBUTION = [
+    const POS_BASE = [
       { value: 100, count: 1 },
       { value: 80,  count: 2 },
       { value: 70,  count: 3 },
       { value: 50,  count: 4 },
       { value: 30,  count: 5 },
-      { value: 10,  count: 10 },
     ];
 
-    // Popup timing:
-    // Hold (static) varies, Fade is fixed (original)
-    const POPUP_FADE_MS = 1200;       // フェードアウト時間は固定
-    const HOLD_NEUTRAL_MS = 1200;     // 効果なし
-    const HOLD_POSNEG_MS = 1440;      // 青/赤：0.6倍（元2400ms）
-    const HOLD_PENALTY_MS = 6000;     // 罰ゲーム：5倍
+    // Popup timing (hold varies, fade fixed)
+    const POPUP_FADE_MS = 1200;
+    const HOLD_NEUTRAL_MS = 1200;
+    const HOLD_POSNEG_MS = 1440;
+    const HOLD_PENALTY_MS = 6000;
+
+    // Coordinate / layout
+    const PAD = 18;                 // reduced
+    const LABEL_MARGIN = 34;        // reduced (less empty corner space)
+    const FILES = ["a","b","c","d","e","f","g","h"];
+    const RANKS = ["8","7","6","5","4","3","2","1"];
 
     // =========================
     // UI
@@ -216,6 +233,9 @@
 
     const ui = {
       reset: document.getElementById("btnReset"),
+      penaltyCount: document.getElementById("penaltyCount"),
+      penaltyRandom: document.getElementById("btnPenaltyRandom"),
+
       turnLabel: document.getElementById("turnLabel"),
       discBonusLabel: document.getElementById("discBonusLabel"),
 
@@ -236,19 +256,16 @@
     // =========================
     // Game State
     // =========================
-    // board[y][x] : 0 empty, 1 black, 2 white
     let board;
-    // tiles[y][x] : { type, value, consumed }
     let tiles;
-
-    let money;   // {1:number, 2:number}
-    let turn;    // 1 black, 2 white
+    let money;
+    let turn;
     let gameOver = false;
 
     // Popup: Hold + Fade
     let popup = {
       text: "",
-      theme: "neutral", // "pos" | "neg" | "penalty" | "neutral"
+      theme: "neutral",
       start: 0,
       holdMs: HOLD_NEUTRAL_MS,
       fadeMs: POPUP_FADE_MS,
@@ -331,20 +348,49 @@
       return arr;
     }
 
+    function clampInt(v, min, max) {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return min;
+      return Math.max(min, Math.min(max, Math.trunc(n)));
+    }
+
+    // =========================
+    // Layout (board center == canvas center) + Popup center == board center
+    // =========================
+    function getLayout() {
+      const W = canvas.width, H = canvas.height;
+
+      // Reserve equally on all sides by design. Board + labels square is centered.
+      const totalSide = Math.min(W, H) - PAD * 2;         // square area we use
+      const size = totalSide - LABEL_MARGIN * 2;          // board size inside labels
+      const cell = size / N;
+
+      const ox = (W - totalSide) / 2 + PAD;               // top-left of label+board square
+      const oy = (H - totalSide) / 2 + PAD;
+
+      const bx = ox + LABEL_MARGIN;                       // top-left of board itself
+      const by = oy + LABEL_MARGIN;
+
+      const centerX = bx + size / 2;
+      const centerY = by + size / 2;
+
+      return { W, H, totalSide, size, cell, ox, oy, bx, by, centerX, centerY };
+    }
+
     // =========================
     // Tile Placement
     // =========================
-    function initTiles() {
+    function initTiles(penaltyCountRaw) {
+      const penaltyCount = clampInt(penaltyCountRaw, 0, 16);
+
       tiles = Array.from({ length: N }, () => Array.from({ length: N }, () => ({
         type: TILE.NONE,
         value: 0,
         consumed: false,
       })));
 
-      // initial 4 center cells have NO tile effects
       const forbidden = new Set([`3,3`,`4,4`,`3,4`,`4,3`]);
 
-      // corners 2x2 -> 16 candidates
       const cornerCells = [];
       const addBlock = (sx, sy) => {
         for (let y = sy; y < sy + 2; y++) for (let x = sx; x < sx + 2; x++) {
@@ -357,7 +403,7 @@
       addBlock(N - 2, N - 2);
 
       shuffle(cornerCells);
-      const selectedPenalty = cornerCells.slice(0, PENALTY_COUNT);
+      const selectedPenalty = cornerCells.slice(0, penaltyCount);
 
       const used = new Set();
       for (const [x, y] of selectedPenalty) {
@@ -365,37 +411,47 @@
         used.add(`${x},${y}`);
       }
 
-      // build + list (25) and - list (25)
+      const remainingCount = 60 - penaltyCount;
+      const posCount = Math.ceil(remainingCount / 2);
+      const negCount = remainingCount - posCount;
+
+      let posBaseTotal = 0;
       const posList = [];
-      for (const item of POS_DISTRIBUTION) {
+      for (const item of POS_BASE) {
         for (let i = 0; i < item.count; i++) posList.push(+item.value);
+        posBaseTotal += item.count;
       }
-      if (posList.length !== 25) throw new Error("POS distribution must total 25.");
-      const negList = posList.map(v => -v);
+
+      let plus10Count = posCount - posBaseTotal;
+      if (plus10Count < 0) plus10Count = 0;
+      for (let i = 0; i < plus10Count; i++) posList.push(10);
 
       shuffle(posList);
-      shuffle(negList);
+      const posFinal = posList.slice(0, posCount);
 
-      // remaining cells should be 50
-      const remaining = [];
+      const negList = posFinal.map(v => -v);
+      shuffle(negList);
+      const negFinal = negList.slice(0, negCount);
+
+      const remainingCells = [];
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         const key = `${x},${y}`;
         if (forbidden.has(key)) continue;
         if (used.has(key)) continue;
-        remaining.push([x, y]);
+        remainingCells.push([x, y]);
       }
-      shuffle(remaining);
+      shuffle(remainingCells);
 
-      // first 25 -> POS
-      for (let i = 0; i < 25; i++) {
-        const [x, y] = remaining[i];
-        tiles[y][x] = { type: TILE.POS, value: posList[i], consumed: false };
+      for (let i = 0; i < posFinal.length; i++) {
+        const [x, y] = remainingCells[i];
+        tiles[y][x] = { type: TILE.POS, value: posFinal[i], consumed: false };
       }
-      // next 25 -> NEG
-      for (let i = 0; i < 25; i++) {
-        const [x, y] = remaining[i + 25];
-        tiles[y][x] = { type: TILE.NEG, value: negList[i], consumed: false };
+      for (let i = 0; i < negFinal.length; i++) {
+        const [x, y] = remainingCells[i + posFinal.length];
+        tiles[y][x] = { type: TILE.NEG, value: negFinal[i], consumed: false };
       }
+
+      return { penaltyCount, posCount, negCount, plus10Count };
     }
 
     function applyTileEffect(p, x, y) {
@@ -409,7 +465,6 @@
         return { type: t.type, value: t.value };
       }
       if (t.type === TILE.PENALTY) {
-        // effect not defined yet (value 0)
         return { type: t.type, value: 0 };
       }
       return null;
@@ -418,7 +473,7 @@
     // =========================
     // Text fitting
     // =========================
-    function fitFontSizeToCell(text, maxWidth, maxHeight, fontFamily = "system-ui") {
+    function fitFontSizeToBox(text, maxWidth, maxHeight, fontFamily = "system-ui") {
       let lo = 6;
       let hi = Math.floor(maxHeight);
       let best = lo;
@@ -429,12 +484,8 @@
         const w = ctx.measureText(text).width;
         const h = mid * 1.05;
 
-        if (w <= maxWidth && h <= maxHeight) {
-          best = mid;
-          lo = mid + 1;
-        } else {
-          hi = mid - 1;
-        }
+        if (w <= maxWidth && h <= maxHeight) { best = mid; lo = mid + 1; }
+        else { hi = mid - 1; }
       }
       return best;
     }
@@ -443,35 +494,28 @@
     // Rendering
     // =========================
     function draw() {
-      const W = canvas.width, H = canvas.height;
+      const { W, H, size, cell, bx, by } = getLayout();
+
       ctx.clearRect(0, 0, W, H);
-
-      const pad = 28;
-      const size = Math.min(W, H) - pad * 2;
-      const cell = size / N;
-      const ox = (W - size) / 2;
-      const oy = (H - size) / 2;
-
-      // background
       ctx.fillStyle = "#0b0b0b";
       ctx.fillRect(0, 0, W, H);
 
       // board base
       ctx.fillStyle = "#145a32";
-      ctx.fillRect(ox, oy, size, size);
+      ctx.fillRect(bx, by, size, size);
 
-      // tile fills (behind everything)
+      // tile fills
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         const t = tiles[y][x];
         if (!t || t.type === TILE.NONE) continue;
 
-        const rx = ox + x * cell;
-        const ry = oy + y * cell;
+        const rx = bx + x * cell;
+        const ry = by + y * cell;
         const dim = t.consumed ? 0.45 : 0.85;
 
-        if (t.type === TILE.PENALTY) ctx.fillStyle = `rgba(255, 215, 0, ${dim})`;      // yellow
-        else if (t.type === TILE.POS) ctx.fillStyle = `rgba(0, 102, 204, ${dim})`;     // blue
-        else ctx.fillStyle = `rgba(204, 0, 0, ${dim})`;                                // red
+        if (t.type === TILE.PENALTY) ctx.fillStyle = `rgba(255, 215, 0, ${dim})`;
+        else if (t.type === TILE.POS) ctx.fillStyle = `rgba(0, 102, 204, ${dim})`;
+        else ctx.fillStyle = `rgba(204, 0, 0, ${dim})`;
 
         ctx.fillRect(rx, ry, cell, cell);
       }
@@ -480,31 +524,33 @@
       ctx.strokeStyle = "rgba(255,255,255,.25)";
       ctx.lineWidth = 2;
       for (let i = 0; i <= N; i++) {
-        const x = ox + i * cell;
-        const y = oy + i * cell;
-        ctx.beginPath(); ctx.moveTo(x, oy); ctx.lineTo(x, oy + size); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(ox, y); ctx.lineTo(ox + size, y); ctx.stroke();
+        const x = bx + i * cell;
+        const y = by + i * cell;
+        ctx.beginPath(); ctx.moveTo(x, by); ctx.lineTo(x, by + size); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(bx, y); ctx.lineTo(bx + size, y); ctx.stroke();
       }
 
-      // tile text (under discs)
+      // coordinates on all four sides
+      drawCoordinatesAllSides(bx, by, size, cell);
+
+      // tile text
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         const t = tiles[y][x];
         if (!t || t.type === TILE.NONE) continue;
 
-        const cx = ox + x * cell + cell / 2;
-        const cy = oy + y * cell + cell / 2;
+        const cx = bx + x * cell + cell / 2;
+        const cy = by + y * cell + cell / 2;
 
         if (t.type === TILE.PENALTY) {
           const text = "罰ゲーム";
-          const fontSize = fitFontSizeToCell(text, cell * 0.92, cell * 0.34, "system-ui");
+          const fontSize = fitFontSizeToBox(text, cell * 0.92, cell * 0.34);
           ctx.font = `900 ${fontSize}px system-ui`;
-          ctx.fillStyle = "rgba(0,0,0,0.95)"; // high contrast on yellow
+          ctx.fillStyle = "rgba(0,0,0,0.95)";
           const tw = ctx.measureText(text).width;
           ctx.fillText(text, cx - tw / 2, cy + fontSize * 0.35);
         } else {
-          // POS/NEG: number only
           const text = (t.value >= 0) ? `+${t.value}` : `${t.value}`;
-          const fontSize = fitFontSizeToCell(text, cell * 0.92, cell * 0.62, "system-ui");
+          const fontSize = fitFontSizeToBox(text, cell * 0.92, cell * 0.62);
           ctx.font = `900 ${fontSize}px system-ui`;
           ctx.fillStyle = "rgba(255,255,255,0.95)";
           const tw = ctx.measureText(text).width;
@@ -517,22 +563,19 @@
         const v = board[y][x];
         if (v === 0) continue;
 
-        const cx = ox + x * cell + cell / 2;
-        const cy = oy + y * cell + cell / 2;
+        const cx = bx + x * cell + cell / 2;
+        const cy = by + y * cell + cell / 2;
 
-        // shadow
         ctx.beginPath();
         ctx.arc(cx + 2, cy + 2, cell * 0.36, 0, Math.PI * 2);
         ctx.fillStyle = "rgba(0,0,0,.35)";
         ctx.fill();
 
-        // disc
         ctx.beginPath();
         ctx.arc(cx, cy, cell * 0.36, 0, Math.PI * 2);
         ctx.fillStyle = (v === 1) ? "#111" : "#f0f0f0";
         ctx.fill();
 
-        // rim
         ctx.strokeStyle = "rgba(255,255,255,.12)";
         ctx.lineWidth = 2;
         ctx.stroke();
@@ -541,27 +584,50 @@
       // frame
       ctx.strokeStyle = "rgba(255,255,255,.25)";
       ctx.lineWidth = 3;
-      ctx.strokeRect(ox, oy, size, size);
+      ctx.strokeRect(bx, by, size, size);
 
-      // popup overlay (above everything)
-      drawPopupOverlay(W, H);
+      // popup overlay (CENTERED on board)
+      drawPopupOverlayBoardCentered();
 
-      // legal move dots MOST FRONT
-      drawLegalMoveDots(ox, oy, cell);
+      // legal move dots (frontmost)
+      drawLegalMoveDots(bx, by, cell);
     }
 
-    function drawLegalMoveDots(ox, oy, cell) {
+    function drawCoordinatesAllSides(bx, by, size, cell) {
+      const fontSize = Math.max(13, Math.floor(LABEL_MARGIN * 0.40));
+
+      ctx.save();
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "center";
+      ctx.font = `800 ${fontSize}px system-ui`;
+
+      for (let x = 0; x < N; x++) {
+        const cx = bx + x * cell + cell / 2;
+        ctx.fillText(FILES[x], cx, by - LABEL_MARGIN * 0.58);
+        ctx.fillText(FILES[x], cx, by + size + LABEL_MARGIN * 0.58);
+      }
+
+      for (let y = 0; y < N; y++) {
+        const cy = by + y * cell + cell / 2;
+        ctx.fillText(RANKS[y], bx - LABEL_MARGIN * 0.58, cy);
+        ctx.fillText(RANKS[y], bx + size + LABEL_MARGIN * 0.58, cy);
+      }
+
+      ctx.restore();
+    }
+
+    function drawLegalMoveDots(bx, by, cell) {
       if (gameOver) return;
 
-      // black dot + light outline, drawn last = most front
       ctx.fillStyle = "rgba(0,0,0,.80)";
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         if (board[y][x] !== 0) continue;
         const flips = getFlipsForMove(turn, x, y);
         if (flips.length === 0) continue;
 
-        const cx = ox + x * cell + cell / 2;
-        const cy = oy + y * cell + cell / 2;
+        const cx = bx + x * cell + cell / 2;
+        const cy = by + y * cell + cell / 2;
 
         ctx.beginPath();
         ctx.arc(cx, cy, cell * 0.090, 0, Math.PI * 2);
@@ -573,24 +639,26 @@
       }
     }
 
-    function drawPopupOverlay(W, H) {
+    function drawPopupOverlayBoardCentered() {
       const now = performance.now();
       if (!popup.text || now > popup.endAt) return;
 
-      // Hold phase: alpha=1. Fade phase: alpha decreases over fixed POPUP_FADE_MS.
       let alpha = 1;
       if (now > popup.holdUntil) {
-        const t = (now - popup.holdUntil) / popup.fadeMs; // 0..1
+        const t = (now - popup.holdUntil) / popup.fadeMs;
         alpha = Math.max(0, 1 - t);
       }
       const eased = 1 - Math.pow(1 - alpha, 2);
 
-      const boxW = Math.min(560, W * 0.78);
-      const boxH = Math.min(140, H * 0.18);
-      const x = (W - boxW) / 2;
-      const y = (H - boxH) / 2;
+      const { W, H, size, centerX, centerY } = getLayout();
 
-      // theme colors (correlated)
+      // popup size is relative to board size (keeps it visually aligned)
+      const boxW = Math.min(560, size * 0.82, W * 0.78);
+      const boxH = Math.min(140, size * 0.22, H * 0.18);
+
+      const x = centerX - boxW / 2;
+      const y = centerY - boxH / 2;
+
       let fill = "rgba(0,0,0,0.70)";
       let border = "rgba(255,255,255,0.35)";
       if (popup.theme === "pos") {
@@ -617,7 +685,7 @@
       const text = popup.text;
       const maxW = boxW * 0.9;
       const maxH = boxH * 0.55;
-      const fontSize = fitFontSizeToCell(text, maxW, maxH, "system-ui");
+      const fontSize = fitFontSizeToBox(text, maxW, maxH);
       ctx.font = `900 ${fontSize}px system-ui`;
       ctx.fillStyle = "rgba(255,255,255,0.95)";
       const tw = ctx.measureText(text).width;
@@ -627,16 +695,10 @@
     }
 
     function canvasToCell(px, py) {
-      const W = canvas.width, H = canvas.height;
-      const pad = 28;
-      const size = Math.min(W, H) - pad * 2;
-      const cell = size / N;
-      const ox = (W - size) / 2;
-      const oy = (H - size) / 2;
-
-      if (px < ox || py < oy || px > ox + size || py > oy + size) return null;
-      const x = Math.floor((px - ox) / cell);
-      const y = Math.floor((py - oy) / cell);
+      const { bx, by, size, cell } = getLayout();
+      if (px < bx || py < by || px > bx + size || py > by + size) return null;
+      const x = Math.floor((px - bx) / cell);
+      const y = Math.floor((py - by) / cell);
       if (!inBounds(x, y)) return null;
       return { x, y };
     }
@@ -733,8 +795,10 @@
       const eff = applyTileEffect(turn, x, y);
 
       const who = (turn === 1) ? "黒" : "白";
+      const coord = `${FILES[x]}${8 - y}`;
+
       let msg =
-        `${who}が(${x + 1},${y + 1})に置いた。ひっくり返し: ${flips.length}枚。\n` +
+        `${who}が ${coord} に置いた。ひっくり返し: ${flips.length}枚。\n` +
         `マス効果: `;
 
       if (!eff) {
@@ -760,17 +824,24 @@
     // Reset
     // =========================
     function reset() {
+      const pc = clampInt(ui.penaltyCount.value, 0, 16);
+      ui.penaltyCount.value = String(pc);
+
       board = Array.from({ length: N }, () => Array.from({ length: N }, () => 0));
       board[3][3] = 2; board[4][4] = 2;
       board[3][4] = 1; board[4][3] = 1;
 
-      initTiles(); // reroll tiles
+      const info = initTiles(pc);
 
       money = { 1: 0, 2: 0 };
       turn = 1;
       gameOver = false;
 
-      refreshUI("開始。黒の手番。Resetでマス配置も再抽選されます。");
+      refreshUI(
+        `開始。黒の手番。\n` +
+        `罰ゲーム: ${info.penaltyCount} / 正: ${info.posCount}（+10は${info.plus10Count}枚） / 負: ${info.negCount}\n` +
+        `Resetでマス配置も再抽選されます。`
+      );
       showPopup("START", "neutral", HOLD_NEUTRAL_MS);
       draw();
     }
@@ -810,14 +881,17 @@
 
     ui.reset.addEventListener("click", reset);
 
+    ui.penaltyRandom.addEventListener("click", () => {
+      ui.penaltyCount.value = String(Math.floor(Math.random() * 17));
+      reset();
+    });
+
     // =========================
     // Boot + animation loop
     // =========================
     function loop() {
       const now = performance.now();
-      if (popup.text && now <= popup.endAt) {
-        draw();
-      }
+      if (popup.text && now <= popup.endAt) draw();
       requestAnimationFrame(loop);
     }
 
