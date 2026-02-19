@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Othello × LifeGame（CCC / Local v10）</title>
+  <title>Othello × LifeGame（CCC / Local v11）</title>
   <style>
     :root { color-scheme: light dark; }
     * { box-sizing: border-box; }
@@ -171,6 +171,7 @@
           <div class="kv">
             <div class="k">石の枚数</div><div class="v" id="blackDiscs">2</div>
             <div class="k">所持金</div><div class="v" id="blackMoney">0</div>
+            <div class="k">罰ゲーム回数</div><div class="v" id="blackPenaltyHits">0</div>
             <div class="k">総合得点（合算）</div><div class="v" id="blackTotal">20</div>
           </div>
         </div>
@@ -183,6 +184,7 @@
           <div class="kv">
             <div class="k">石の枚数</div><div class="v" id="whiteDiscs">2</div>
             <div class="k">所持金</div><div class="v" id="whiteMoney">0</div>
+            <div class="k">罰ゲーム回数</div><div class="v" id="whitePenaltyHits">0</div>
             <div class="k">総合得点（合算）</div><div class="v" id="whiteTotal">20</div>
           </div>
         </div>
@@ -220,8 +222,8 @@
     const HOLD_PENALTY_MS = 6000;
 
     // Coordinate / layout
-    const PAD = 18;                 // reduced
-    const LABEL_MARGIN = 34;        // reduced (less empty corner space)
+    const PAD = 18;
+    const LABEL_MARGIN = 34;
     const FILES = ["a","b","c","d","e","f","g","h"];
     const RANKS = ["8","7","6","5","4","3","2","1"];
 
@@ -245,6 +247,8 @@
       whiteMoney: document.getElementById("whiteMoney"),
       blackTotal: document.getElementById("blackTotal"),
       whiteTotal: document.getElementById("whiteTotal"),
+      blackPenaltyHits: document.getElementById("blackPenaltyHits"),
+      whitePenaltyHits: document.getElementById("whitePenaltyHits"),
 
       blackTurnHint: document.getElementById("blackTurnHint"),
       whiteTurnHint: document.getElementById("whiteTurnHint"),
@@ -259,10 +263,11 @@
     let board;
     let tiles;
     let money;
+    let penaltyHits; // {1:number, 2:number}
     let turn;
     let gameOver = false;
 
-    // Popup: Hold + Fade
+    // Popup
     let popup = {
       text: "",
       theme: "neutral",
@@ -360,15 +365,14 @@
     function getLayout() {
       const W = canvas.width, H = canvas.height;
 
-      // Reserve equally on all sides by design. Board + labels square is centered.
-      const totalSide = Math.min(W, H) - PAD * 2;         // square area we use
-      const size = totalSide - LABEL_MARGIN * 2;          // board size inside labels
+      const totalSide = Math.min(W, H) - PAD * 2;
+      const size = totalSide - LABEL_MARGIN * 2;
       const cell = size / N;
 
-      const ox = (W - totalSide) / 2 + PAD;               // top-left of label+board square
+      const ox = (W - totalSide) / 2 + PAD;
       const oy = (H - totalSide) / 2 + PAD;
 
-      const bx = ox + LABEL_MARGIN;                       // top-left of board itself
+      const bx = ox + LABEL_MARGIN;
       const by = oy + LABEL_MARGIN;
 
       const centerX = bx + size / 2;
@@ -465,6 +469,8 @@
         return { type: t.type, value: t.value };
       }
       if (t.type === TILE.PENALTY) {
+        // NEW: penalty hit count
+        penaltyHits[p] += 1;
         return { type: t.type, value: 0 };
       }
       return null;
@@ -500,11 +506,9 @@
       ctx.fillStyle = "#0b0b0b";
       ctx.fillRect(0, 0, W, H);
 
-      // board base
       ctx.fillStyle = "#145a32";
       ctx.fillRect(bx, by, size, size);
 
-      // tile fills
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         const t = tiles[y][x];
         if (!t || t.type === TILE.NONE) continue;
@@ -520,7 +524,6 @@
         ctx.fillRect(rx, ry, cell, cell);
       }
 
-      // grid
       ctx.strokeStyle = "rgba(255,255,255,.25)";
       ctx.lineWidth = 2;
       for (let i = 0; i <= N; i++) {
@@ -530,10 +533,8 @@
         ctx.beginPath(); ctx.moveTo(bx, y); ctx.lineTo(bx + size, y); ctx.stroke();
       }
 
-      // coordinates on all four sides
       drawCoordinatesAllSides(bx, by, size, cell);
 
-      // tile text
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         const t = tiles[y][x];
         if (!t || t.type === TILE.NONE) continue;
@@ -558,7 +559,6 @@
         }
       }
 
-      // discs
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         const v = board[y][x];
         if (v === 0) continue;
@@ -581,15 +581,11 @@
         ctx.stroke();
       }
 
-      // frame
       ctx.strokeStyle = "rgba(255,255,255,.25)";
       ctx.lineWidth = 3;
       ctx.strokeRect(bx, by, size, size);
 
-      // popup overlay (CENTERED on board)
       drawPopupOverlayBoardCentered();
-
-      // legal move dots (frontmost)
       drawLegalMoveDots(bx, by, cell);
     }
 
@@ -652,7 +648,6 @@
 
       const { W, H, size, centerX, centerY } = getLayout();
 
-      // popup size is relative to board size (keeps it visually aligned)
       const boxW = Math.min(560, size * 0.82, W * 0.78);
       const boxH = Math.min(140, size * 0.22, H * 0.18);
 
@@ -694,15 +689,6 @@
       ctx.restore();
     }
 
-    function canvasToCell(px, py) {
-      const { bx, by, size, cell } = getLayout();
-      if (px < bx || py < by || px > bx + size || py > by + size) return null;
-      const x = Math.floor((px - bx) / cell);
-      const y = Math.floor((py - by) / cell);
-      if (!inBounds(x, y)) return null;
-      return { x, y };
-    }
-
     // =========================
     // UI refresh
     // =========================
@@ -717,6 +703,9 @@
       ui.blackMoney.textContent = String(money[1]);
       ui.whiteMoney.textContent = String(money[2]);
 
+      ui.blackPenaltyHits.textContent = String(penaltyHits[1]);
+      ui.whitePenaltyHits.textContent = String(penaltyHits[2]);
+
       const bt = totalScore(1, { b, w });
       const wt = totalScore(2, { b, w });
       ui.blackTotal.textContent = String(bt);
@@ -726,8 +715,8 @@
         const winner = bt === wt ? "引き分け" : (bt > wt ? "黒の勝ち" : "白の勝ち");
         log(
           `ゲーム終了。\n` +
-          `黒: 所持金 ${money[1]} / 石 ${b} / 合算 ${bt}\n` +
-          `白: 所持金 ${money[2]} / 石 ${w} / 合算 ${wt}\n` +
+          `黒: 所持金 ${money[1]} / 石 ${b} / 罰ゲーム ${penaltyHits[1]}回 / 合算 ${bt}\n` +
+          `白: 所持金 ${money[2]} / 石 ${w} / 罰ゲーム ${penaltyHits[2]}回 / 合算 ${wt}\n` +
           `結果: ${winner}\n` +
           (extraMsg ? `\n${extraMsg}` : "")
         );
@@ -805,7 +794,7 @@
         msg += "なし";
         showPopup("効果なし", "neutral", HOLD_NEUTRAL_MS);
       } else if (eff.type === TILE.PENALTY) {
-        msg += "罰ゲーム（効果は未設定）";
+        msg += `罰ゲーム（${who}の罰ゲーム回数: ${penaltyHits[turn]}）`;
         showPopup("罰ゲーム", "penalty", HOLD_PENALTY_MS);
       } else {
         const signed = eff.value >= 0 ? `+${eff.value}` : `${eff.value}`;
@@ -834,6 +823,7 @@
       const info = initTiles(pc);
 
       money = { 1: 0, 2: 0 };
+      penaltyHits = { 1: 0, 2: 0 };
       turn = 1;
       gameOver = false;
 
@@ -893,6 +883,16 @@
       const now = performance.now();
       if (popup.text && now <= popup.endAt) draw();
       requestAnimationFrame(loop);
+    }
+
+    // cell mapping uses layout
+    function canvasToCell(px, py) {
+      const { bx, by, size, cell } = getLayout();
+      if (px < bx || py < by || px > bx + size || py > by + size) return null;
+      const x = Math.floor((px - bx) / cell);
+      const y = Math.floor((py - by) / cell);
+      if (!inBounds(x, y)) return null;
+      return { x, y };
     }
 
     reset();
