@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Othello × LifeGame（CCC / Custom Events v7）</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+    }
+    .app { width: min(1040px, 96vw); display: grid; gap: 12px; padding: 14px 0; }
+
+    .panel {
+      border: 1px solid rgba(127,127,127,.35);
+      border-radius: 14px;
+      padding: 12px;
+      background: rgba(127,127,127,.06);
+    }
+
+    .topbar { display: grid; gap: 10px; }
+    .toprow {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .title { font-weight: 700; font-size: 16px; line-height: 1.2; }
+    .hint { opacity: .75; font-size: 12px; }
+
+    button {
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(127,127,127,.35);
+      background: rgba(127,127,127,.12);
+      cursor: pointer;
+    }
+    button:hover { filter: brightness(1.1); }
+
+    .scoregrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    @media (max-width: 720px) { .scoregrid { grid-template-columns: 1fr; } }
+
+    .playerCard {
+      border-radius: 14px;
+      padding: 12px;
+      border: 1px solid rgba(127,127,127,.35);
+      background: rgba(127,127,127,.08);
+      display: grid;
+      gap: 10px;
+    }
+
+    .playerHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(127,127,127,.35);
+      background: rgba(127,127,127,.12);
+      font-size: 13px;
+    }
+    .dot {
+      width: 12px; height: 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(127,127,127,.35);
+    }
+    .dot.black { background: #111; }
+    .dot.white { background: #f0f0f0; }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px 12px;
+      align-items: baseline;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(127,127,127,.25);
+      background: rgba(0,0,0,.10);
+    }
+    .k { opacity: .85; font-size: 12px; }
+    .v { font-weight: 800; font-size: 18px; letter-spacing: .2px; }
+
+    .turnBanner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(127,127,127,.25);
+      background: rgba(0,0,0,.12);
+    }
+
+    canvas {
+      width: 100%;
+      height: auto;
+      border-radius: 14px;
+      border: 1px solid rgba(127,127,127,.35);
+      background: #0b0b0b;
+      touch-action: none;
+    }
+    #log { white-space: pre-wrap; line-height: 1.5; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="panel topbar">
+      <div class="toprow">
+        <div>
+          <div class="title">Othello × LifeGame（CCC）</div>
+          <div class="hint">クリックで石を置く / R: リセット（配置も再抽選） / 置ける場所には黒い点（最前面）</div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="btnReset">Reset</button>
+        </div>
+      </div>
+
+      <div class="turnBanner">
+        <div class="badge">
+          <span>手番</span>
+          <span id="turnLabel" style="font-weight:800;">黒</span>
+        </div>
+        <div class="hint">
+          合算 = 所持金 + 石数×<span id="discBonusLabel">10</span> /
+          罰ゲーム: 黄 / 正: 青(+値) / 負: 赤(-値)
+        </div>
+      </div>
+
+      <div class="scoregrid">
+        <div class="playerCard" aria-label="black player">
+          <div class="playerHeader">
+            <span class="badge"><span class="dot black"></span><strong>黒</strong></span>
+            <span class="hint" id="blackTurnHint"></span>
+          </div>
+          <div class="kv">
+            <div class="k">石の枚数</div><div class="v" id="blackDiscs">2</div>
+            <div class="k">所持金</div><div class="v" id="blackMoney">0</div>
+            <div class="k">総合得点（合算）</div><div class="v" id="blackTotal">20</div>
+          </div>
+        </div>
+
+        <div class="playerCard" aria-label="white player">
+          <div class="playerHeader">
+            <span class="badge"><span class="dot white"></span><strong>白</strong></span>
+            <span class="hint" id="whiteTurnHint"></span>
+          </div>
+          <div class="kv">
+            <div class="k">石の枚数</div><div class="v" id="whiteDiscs">2</div>
+            <div class="k">所持金</div><div class="v" id="whiteMoney">0</div>
+            <div class="k">総合得点（合算）</div><div class="v" id="whiteTotal">20</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <canvas id="game" width="900" height="900" aria-label="othello board"></canvas>
+
+    <div class="panel" id="log"></div>
+  </div>
+
+  <script>
+    "use strict";
+
+    // =========================
+    // Config
+    // =========================
+    const N = 8;
+    const DISC_BONUS = 10;
+
+    const TILE = { NONE: 0, PENALTY: 1, POS: 2, NEG: 3 };
+
+    // corners 2x2 (16 cells) -> pick 10 for penalty
+    const PENALTY_COUNT = 10;
+
+    // positive distribution totals 25 (remaining 50 -> pos25 + neg25)
+    const POS_DISTRIBUTION = [
+      { value: 100, count: 1 },
+      { value: 80,  count: 2 },
+      { value: 70,  count: 3 },
+      { value: 50,  count: 4 },
+      { value: 30,  count: 5 },
+      { value: 10,  count: 10 },
+    ];
+
+    // Popup timing:
+    // Hold (static) varies, Fade is fixed (original)
+    const POPUP_FADE_MS = 1200;       // フェードアウト時間は固定
+    const HOLD_NEUTRAL_MS = 1200;     // 効果なし
+    const HOLD_POSNEG_MS = 1440;      // 青/赤：0.6倍（元2400ms）
+    const HOLD_PENALTY_MS = 6000;     // 罰ゲーム：5倍
+
+    // =========================
+    // UI
+    // =========================
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const ui = {
+      reset: document.getElementById("btnReset"),
+      turnLabel: document.getElementById("turnLabel"),
+      discBonusLabel: document.getElementById("discBonusLabel"),
+
+      blackDiscs: document.getElementById("blackDiscs"),
+      whiteDiscs: document.getElementById("whiteDiscs"),
+      blackMoney: document.getElementById("blackMoney"),
+      whiteMoney: document.getElementById("whiteMoney"),
+      blackTotal: document.getElementById("blackTotal"),
+      whiteTotal: document.getElementById("whiteTotal"),
+
+      blackTurnHint: document.getElementById("blackTurnHint"),
+      whiteTurnHint: document.getElementById("whiteTurnHint"),
+
+      log: document.getElementById("log"),
+    };
+    ui.discBonusLabel.textContent = String(DISC_BONUS);
+
+    // =========================
+    // Game State
+    // =========================
+    // board[y][x] : 0 empty, 1 black, 2 white
+    let board;
+    // tiles[y][x] : { type, value, consumed }
+    let tiles;
+
+    let money;   // {1:number, 2:number}
+    let turn;    // 1 black, 2 white
+    let gameOver = false;
+
+    // Popup: Hold + Fade
+    let popup = {
+      text: "",
+      theme: "neutral", // "pos" | "neg" | "penalty" | "neutral"
+      start: 0,
+      holdMs: HOLD_NEUTRAL_MS,
+      fadeMs: POPUP_FADE_MS,
+      holdUntil: 0,
+      endAt: 0,
+    };
+
+    function showPopup(text, theme, holdMs) {
+      const now = performance.now();
+      popup.text = text;
+      popup.theme = theme;
+      popup.start = now;
+      popup.holdMs = holdMs;
+      popup.fadeMs = POPUP_FADE_MS;
+      popup.holdUntil = now + holdMs;
+      popup.endAt = popup.holdUntil + popup.fadeMs;
+    }
+
+    function other(p) { return p === 1 ? 2 : 1; }
+    function inBounds(x, y) { return x >= 0 && x < N && y >= 0 && y < N; }
+    function log(msg) { ui.log.textContent = msg; }
+
+    // =========================
+    // Othello logic
+    // =========================
+    const DIRS = [
+      [-1,-1],[0,-1],[1,-1],
+      [-1, 0],      [1, 0],
+      [-1, 1],[0, 1],[1, 1],
+    ];
+
+    function getFlipsForMove(p, x, y) {
+      if (!inBounds(x, y) || board[y][x] !== 0) return [];
+      const opp = other(p);
+      const flips = [];
+      for (const [dx, dy] of DIRS) {
+        let cx = x + dx, cy = y + dy;
+        const line = [];
+        while (inBounds(cx, cy) && board[cy][cx] === opp) {
+          line.push([cx, cy]);
+          cx += dx; cy += dy;
+        }
+        if (line.length > 0 && inBounds(cx, cy) && board[cy][cx] === p) {
+          flips.push(...line);
+        }
+      }
+      return flips;
+    }
+
+    function hasAnyMove(p) {
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        if (board[y][x] !== 0) continue;
+        if (getFlipsForMove(p, x, y).length > 0) return true;
+      }
+      return false;
+    }
+
+    function countDiscs() {
+      let b = 0, w = 0;
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        if (board[y][x] === 1) b++;
+        else if (board[y][x] === 2) w++;
+      }
+      return { b, w };
+    }
+
+    function totalScore(p, discsCount) {
+      const discs = (p === 1) ? discsCount.b : discsCount.w;
+      return money[p] + discs * DISC_BONUS;
+    }
+
+    // =========================
+    // Utilities
+    // =========================
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    // =========================
+    // Tile Placement
+    // =========================
+    function initTiles() {
+      tiles = Array.from({ length: N }, () => Array.from({ length: N }, () => ({
+        type: TILE.NONE,
+        value: 0,
+        consumed: false,
+      })));
+
+      // initial 4 center cells have NO tile effects
+      const forbidden = new Set([`3,3`,`4,4`,`3,4`,`4,3`]);
+
+      // corners 2x2 -> 16 candidates
+      const cornerCells = [];
+      const addBlock = (sx, sy) => {
+        for (let y = sy; y < sy + 2; y++) for (let x = sx; x < sx + 2; x++) {
+          if (!forbidden.has(`${x},${y}`)) cornerCells.push([x, y]);
+        }
+      };
+      addBlock(0, 0);
+      addBlock(N - 2, 0);
+      addBlock(0, N - 2);
+      addBlock(N - 2, N - 2);
+
+      shuffle(cornerCells);
+      const selectedPenalty = cornerCells.slice(0, PENALTY_COUNT);
+
+      const used = new Set();
+      for (const [x, y] of selectedPenalty) {
+        tiles[y][x] = { type: TILE.PENALTY, value: 0, consumed: false };
+        used.add(`${x},${y}`);
+      }
+
+      // build + list (25) and - list (25)
+      const posList = [];
+      for (const item of POS_DISTRIBUTION) {
+        for (let i = 0; i < item.count; i++) posList.push(+item.value);
+      }
+      if (posList.length !== 25) throw new Error("POS distribution must total 25.");
+      const negList = posList.map(v => -v);
+
+      shuffle(posList);
+      shuffle(negList);
+
+      // remaining cells should be 50
+      const remaining = [];
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const key = `${x},${y}`;
+        if (forbidden.has(key)) continue;
+        if (used.has(key)) continue;
+        remaining.push([x, y]);
+      }
+      shuffle(remaining);
+
+      // first 25 -> POS
+      for (let i = 0; i < 25; i++) {
+        const [x, y] = remaining[i];
+        tiles[y][x] = { type: TILE.POS, value: posList[i], consumed: false };
+      }
+      // next 25 -> NEG
+      for (let i = 0; i < 25; i++) {
+        const [x, y] = remaining[i + 25];
+        tiles[y][x] = { type: TILE.NEG, value: negList[i], consumed: false };
+      }
+    }
+
+    function applyTileEffect(p, x, y) {
+      const t = tiles[y][x];
+      if (!t || t.type === TILE.NONE || t.consumed) return null;
+
+      t.consumed = true;
+
+      if (t.type === TILE.POS || t.type === TILE.NEG) {
+        money[p] += t.value;
+        return { type: t.type, value: t.value };
+      }
+      if (t.type === TILE.PENALTY) {
+        // effect not defined yet (value 0)
+        return { type: t.type, value: 0 };
+      }
+      return null;
+    }
+
+    // =========================
+    // Text fitting
+    // =========================
+    function fitFontSizeToCell(text, maxWidth, maxHeight, fontFamily = "system-ui") {
+      let lo = 6;
+      let hi = Math.floor(maxHeight);
+      let best = lo;
+
+      while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        ctx.font = `900 ${mid}px ${fontFamily}`;
+        const w = ctx.measureText(text).width;
+        const h = mid * 1.05;
+
+        if (w <= maxWidth && h <= maxHeight) {
+          best = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      return best;
+    }
+
+    // =========================
+    // Rendering
+    // =========================
+    function draw() {
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+
+      const pad = 28;
+      const size = Math.min(W, H) - pad * 2;
+      const cell = size / N;
+      const ox = (W - size) / 2;
+      const oy = (H - size) / 2;
+
+      // background
+      ctx.fillStyle = "#0b0b0b";
+      ctx.fillRect(0, 0, W, H);
+
+      // board base
+      ctx.fillStyle = "#145a32";
+      ctx.fillRect(ox, oy, size, size);
+
+      // tile fills (behind everything)
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const t = tiles[y][x];
+        if (!t || t.type === TILE.NONE) continue;
+
+        const rx = ox + x * cell;
+        const ry = oy + y * cell;
+        const dim = t.consumed ? 0.45 : 0.85;
+
+        if (t.type === TILE.PENALTY) ctx.fillStyle = `rgba(255, 215, 0, ${dim})`;      // yellow
+        else if (t.type === TILE.POS) ctx.fillStyle = `rgba(0, 102, 204, ${dim})`;     // blue
+        else ctx.fillStyle = `rgba(204, 0, 0, ${dim})`;                                // red
+
+        ctx.fillRect(rx, ry, cell, cell);
+      }
+
+      // grid
+      ctx.strokeStyle = "rgba(255,255,255,.25)";
+      ctx.lineWidth = 2;
+      for (let i = 0; i <= N; i++) {
+        const x = ox + i * cell;
+        const y = oy + i * cell;
+        ctx.beginPath(); ctx.moveTo(x, oy); ctx.lineTo(x, oy + size); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(ox, y); ctx.lineTo(ox + size, y); ctx.stroke();
+      }
+
+      // tile text (under discs)
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const t = tiles[y][x];
+        if (!t || t.type === TILE.NONE) continue;
+
+        const cx = ox + x * cell + cell / 2;
+        const cy = oy + y * cell + cell / 2;
+
+        if (t.type === TILE.PENALTY) {
+          const text = "罰ゲーム";
+          const fontSize = fitFontSizeToCell(text, cell * 0.92, cell * 0.34, "system-ui");
+          ctx.font = `900 ${fontSize}px system-ui`;
+          ctx.fillStyle = "rgba(0,0,0,0.95)"; // high contrast on yellow
+          const tw = ctx.measureText(text).width;
+          ctx.fillText(text, cx - tw / 2, cy + fontSize * 0.35);
+        } else {
+          // POS/NEG: number only
+          const text = (t.value >= 0) ? `+${t.value}` : `${t.value}`;
+          const fontSize = fitFontSizeToCell(text, cell * 0.92, cell * 0.62, "system-ui");
+          ctx.font = `900 ${fontSize}px system-ui`;
+          ctx.fillStyle = "rgba(255,255,255,0.95)";
+          const tw = ctx.measureText(text).width;
+          ctx.fillText(text, cx - tw / 2, cy + fontSize * 0.35);
+        }
+      }
+
+      // discs
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const v = board[y][x];
+        if (v === 0) continue;
+
+        const cx = ox + x * cell + cell / 2;
+        const cy = oy + y * cell + cell / 2;
+
+        // shadow
+        ctx.beginPath();
+        ctx.arc(cx + 2, cy + 2, cell * 0.36, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0,0,0,.35)";
+        ctx.fill();
+
+        // disc
+        ctx.beginPath();
+        ctx.arc(cx, cy, cell * 0.36, 0, Math.PI * 2);
+        ctx.fillStyle = (v === 1) ? "#111" : "#f0f0f0";
+        ctx.fill();
+
+        // rim
+        ctx.strokeStyle = "rgba(255,255,255,.12)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // frame
+      ctx.strokeStyle = "rgba(255,255,255,.25)";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(ox, oy, size, size);
+
+      // popup overlay (above everything)
+      drawPopupOverlay(W, H);
+
+      // legal move dots MOST FRONT
+      drawLegalMoveDots(ox, oy, cell);
+    }
+
+    function drawLegalMoveDots(ox, oy, cell) {
+      if (gameOver) return;
+
+      // black dot + light outline, drawn last = most front
+      ctx.fillStyle = "rgba(0,0,0,.80)";
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        if (board[y][x] !== 0) continue;
+        const flips = getFlipsForMove(turn, x, y);
+        if (flips.length === 0) continue;
+
+        const cx = ox + x * cell + cell / 2;
+        const cy = oy + y * cell + cell / 2;
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, cell * 0.090, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = "rgba(255,255,255,.25)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    function drawPopupOverlay(W, H) {
+      const now = performance.now();
+      if (!popup.text || now > popup.endAt) return;
+
+      // Hold phase: alpha=1. Fade phase: alpha decreases over fixed POPUP_FADE_MS.
+      let alpha = 1;
+      if (now > popup.holdUntil) {
+        const t = (now - popup.holdUntil) / popup.fadeMs; // 0..1
+        alpha = Math.max(0, 1 - t);
+      }
+      const eased = 1 - Math.pow(1 - alpha, 2);
+
+      const boxW = Math.min(560, W * 0.78);
+      const boxH = Math.min(140, H * 0.18);
+      const x = (W - boxW) / 2;
+      const y = (H - boxH) / 2;
+
+      // theme colors (correlated)
+      let fill = "rgba(0,0,0,0.70)";
+      let border = "rgba(255,255,255,0.35)";
+      if (popup.theme === "pos") {
+        fill = "rgba(10, 60, 140, 0.78)";
+        border = "rgba(180, 210, 255, 0.55)";
+      } else if (popup.theme === "neg") {
+        fill = "rgba(140, 10, 10, 0.78)";
+        border = "rgba(255, 200, 200, 0.55)";
+      } else if (popup.theme === "penalty") {
+        fill = "rgba(160, 120, 0, 0.78)";
+        border = "rgba(255, 240, 180, 0.60)";
+      }
+
+      ctx.save();
+      ctx.globalAlpha = eased;
+
+      ctx.fillStyle = fill;
+      ctx.fillRect(x, y, boxW, boxH);
+
+      ctx.strokeStyle = border;
+      ctx.lineWidth = 4;
+      ctx.strokeRect(x, y, boxW, boxH);
+
+      const text = popup.text;
+      const maxW = boxW * 0.9;
+      const maxH = boxH * 0.55;
+      const fontSize = fitFontSizeToCell(text, maxW, maxH, "system-ui");
+      ctx.font = `900 ${fontSize}px system-ui`;
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      const tw = ctx.measureText(text).width;
+      ctx.fillText(text, x + (boxW - tw) / 2, y + boxH / 2 + fontSize * 0.35);
+
+      ctx.restore();
+    }
+
+    function canvasToCell(px, py) {
+      const W = canvas.width, H = canvas.height;
+      const pad = 28;
+      const size = Math.min(W, H) - pad * 2;
+      const cell = size / N;
+      const ox = (W - size) / 2;
+      const oy = (H - size) / 2;
+
+      if (px < ox || py < oy || px > ox + size || py > oy + size) return null;
+      const x = Math.floor((px - ox) / cell);
+      const y = Math.floor((py - oy) / cell);
+      if (!inBounds(x, y)) return null;
+      return { x, y };
+    }
+
+    // =========================
+    // UI refresh
+    // =========================
+    function refreshUI(extraMsg = "") {
+      const { b, w } = countDiscs();
+      ui.turnLabel.textContent = (turn === 1) ? "黒" : "白";
+      ui.blackTurnHint.textContent = (turn === 1 && !gameOver) ? "← あなたの手番" : "";
+      ui.whiteTurnHint.textContent = (turn === 2 && !gameOver) ? "← あなたの手番" : "";
+
+      ui.blackDiscs.textContent = String(b);
+      ui.whiteDiscs.textContent = String(w);
+      ui.blackMoney.textContent = String(money[1]);
+      ui.whiteMoney.textContent = String(money[2]);
+
+      const bt = totalScore(1, { b, w });
+      const wt = totalScore(2, { b, w });
+      ui.blackTotal.textContent = String(bt);
+      ui.whiteTotal.textContent = String(wt);
+
+      if (gameOver) {
+        const winner = bt === wt ? "引き分け" : (bt > wt ? "黒の勝ち" : "白の勝ち");
+        log(
+          `ゲーム終了。\n` +
+          `黒: 所持金 ${money[1]} / 石 ${b} / 合算 ${bt}\n` +
+          `白: 所持金 ${money[2]} / 石 ${w} / 合算 ${wt}\n` +
+          `結果: ${winner}\n` +
+          (extraMsg ? `\n${extraMsg}` : "")
+        );
+      } else if (extraMsg) {
+        log(extraMsg);
+      } else {
+        log(`手番: ${(turn === 1) ? "黒" : "白"}。置ける場所には黒い点が出ています（最前面）。`);
+      }
+    }
+
+    // =========================
+    // End / Turn advance
+    // =========================
+    function endIfNoMoves() {
+      const bCan = hasAnyMove(1);
+      const wCan = hasAnyMove(2);
+      const discs = countDiscs();
+      const full = discs.b + discs.w === N * N;
+
+      if (full || (!bCan && !wCan)) {
+        gameOver = true;
+        refreshUI();
+        showPopup("ゲーム終了", "neutral", HOLD_NEUTRAL_MS);
+        return true;
+      }
+      return false;
+    }
+
+    function advanceTurn(msgAfter = "") {
+      const next = other(turn);
+
+      if (hasAnyMove(next)) {
+        turn = next;
+        refreshUI(msgAfter);
+        return;
+      }
+
+      if (!hasAnyMove(turn)) {
+        gameOver = true;
+        refreshUI(msgAfter + (msgAfter ? "\n" : "") + "両者とも置けないため終了。");
+        showPopup("ゲーム終了", "neutral", HOLD_NEUTRAL_MS);
+        return;
+      }
+
+      refreshUI(
+        msgAfter +
+        (msgAfter ? "\n" : "") +
+        `相手（${next === 1 ? "黒" : "白"}）は置けないためパス。あなたの手番続行。`
+      );
+      showPopup("相手パス", "neutral", HOLD_NEUTRAL_MS);
+    }
+
+    // =========================
+    // Move
+    // =========================
+    function tryMove(x, y) {
+      if (gameOver) return;
+
+      const flips = getFlipsForMove(turn, x, y);
+      if (flips.length === 0) return;
+
+      board[y][x] = turn;
+      for (const [fx, fy] of flips) board[fy][fx] = turn;
+
+      const eff = applyTileEffect(turn, x, y);
+
+      const who = (turn === 1) ? "黒" : "白";
+      let msg =
+        `${who}が(${x + 1},${y + 1})に置いた。ひっくり返し: ${flips.length}枚。\n` +
+        `マス効果: `;
+
+      if (!eff) {
+        msg += "なし";
+        showPopup("効果なし", "neutral", HOLD_NEUTRAL_MS);
+      } else if (eff.type === TILE.PENALTY) {
+        msg += "罰ゲーム（効果は未設定）";
+        showPopup("罰ゲーム", "penalty", HOLD_PENALTY_MS);
+      } else {
+        const signed = eff.value >= 0 ? `+${eff.value}` : `${eff.value}`;
+        msg += `${signed}（所持金に反映）`;
+        showPopup(signed, eff.type === TILE.POS ? "pos" : "neg", HOLD_POSNEG_MS);
+      }
+
+      draw();
+      if (endIfNoMoves()) return;
+
+      advanceTurn(msg);
+      draw();
+    }
+
+    // =========================
+    // Reset
+    // =========================
+    function reset() {
+      board = Array.from({ length: N }, () => Array.from({ length: N }, () => 0));
+      board[3][3] = 2; board[4][4] = 2;
+      board[3][4] = 1; board[4][3] = 1;
+
+      initTiles(); // reroll tiles
+
+      money = { 1: 0, 2: 0 };
+      turn = 1;
+      gameOver = false;
+
+      refreshUI("開始。黒の手番。Resetでマス配置も再抽選されます。");
+      showPopup("START", "neutral", HOLD_NEUTRAL_MS);
+      draw();
+    }
+
+    // =========================
+    // Input
+    // =========================
+    function getCanvasPos(evt) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+
+      const clientX = (evt.touches && evt.touches[0]) ? evt.touches[0].clientX : evt.clientX;
+      const clientY = (evt.touches && evt.touches[0]) ? evt.touches[0].clientY : evt.clientY;
+
+      return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+    }
+
+    canvas.addEventListener("click", (e) => {
+      const p = getCanvasPos(e);
+      const cell = canvasToCell(p.x, p.y);
+      if (!cell) return;
+      tryMove(cell.x, cell.y);
+    });
+
+    canvas.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      const p = getCanvasPos(e);
+      const cell = canvasToCell(p.x, p.y);
+      if (!cell) return;
+      tryMove(cell.x, cell.y);
+    }, { passive: false });
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key.toLowerCase() === "r") reset();
+    });
+
+    ui.reset.addEventListener("click", reset);
+
+    // =========================
+    // Boot + animation loop
+    // =========================
+    function loop() {
+      const now = performance.now();
+      if (popup.text && now <= popup.endAt) {
+        draw();
+      }
+      requestAnimationFrame(loop);
+    }
+
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
